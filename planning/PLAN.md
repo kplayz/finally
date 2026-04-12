@@ -24,7 +24,7 @@ The user runs a single Docker command (or a provided start script). A browser op
 - **Watch prices stream** — prices flash green (uptick) or red (downtick) with subtle CSS animations that fade
 - **View sparkline mini-charts** — price action beside each ticker in the watchlist, accumulated on the frontend from the SSE stream since page load (sparklines fill in progressively)
 - **Click a ticker** to see a larger detailed chart in the main chart area
-- **Buy and sell shares** — market orders only, instant fill at current price, no fees, no confirmation dialog
+- **Buy and sell shares** — market orders only, instant fill at current price, no fees, no confirmation dialog. Fractional shares supported (e.g., buy 0.5 shares of AMZN).
 - **Monitor their portfolio** — a heatmap (treemap) showing positions sized by weight and colored by P&L, plus a P&L chart tracking total portfolio value over time
 - **View a positions table** — ticker, quantity, average cost, current price, unrealized P&L, % change
 - **Chat with the AI assistant** — ask about their portfolio, get analysis, and have the AI execute trades and manage the watchlist through natural language
@@ -101,7 +101,7 @@ finally/
 ├── db/                       # Volume mount target (SQLite file lives here at runtime)
 │   └── .gitkeep              # Directory exists in repo; finally.db is gitignored
 ├── Dockerfile                # Multi-stage build (Node → Python)
-├── docker-compose.yml        # Optional convenience wrapper
+├── docker-compose.yml        # Convenience wrapper: volume, port, env-file in one command
 ├── .env                      # Environment variables (gitignored, .env.example committed)
 └── .gitignore
 ```
@@ -110,8 +110,8 @@ finally/
 
 - **`frontend/`** is a self-contained Next.js project. It knows nothing about Python. It talks to the backend via `/api/*` endpoints and `/api/stream/*` SSE endpoints. Internal structure is up to the Frontend Engineer agent.
 - **`backend/`** is a self-contained uv project with its own `pyproject.toml`. It owns all server logic including database initialization, schema, seed data, API routes, SSE streaming, market data, and LLM integration. Internal structure is up to the Backend/Market Data agents.
-- **`backend/db/`** contains schema SQL definitions and seed logic. The backend lazily initializes the database on first request — creating tables and seeding default data if the SQLite file doesn't exist or is empty.
-- **`db/`** at the top level is the runtime volume mount point. The SQLite file (`db/finally.db`) is created here by the backend and persists across container restarts via Docker volume.
+- **`backend/db/`** contains schema SQL definitions and seed logic used by the backend's lazy-init code. These are source files, read at runtime from within the backend package.
+- **`db/`** at the top level is the runtime volume mount point. The backend writes the SQLite file to `db/finally.db` (mapped to `/app/db/finally.db` in the container). The backend resolves this path via a config constant (e.g., `DB_PATH = Path(__file__).resolve().parents[2] / "db" / "finally.db"` or an environment variable), ensuring it works in both local development and Docker.
 - **`planning/`** contains project-wide documentation, including this plan. All agents reference files here as the shared contract.
 - **`test/`** contains Playwright E2E tests and supporting infrastructure (e.g., `docker-compose.test.yml`). Unit tests live within `frontend/` and `backend/` respectively, following each framework's conventions.
 - **`scripts/`** contains start/stop scripts that wrap Docker commands.
@@ -128,6 +128,9 @@ OPENROUTER_API_KEY=your-openrouter-api-key-here
 # If not set, the built-in market simulator is used (recommended for most users)
 MASSIVE_API_KEY=
 
+# Optional: Override the LLM model (default: openrouter/openai/gpt-oss-120b)
+LLM_MODEL=
+
 # Optional: Set to "true" for deterministic mock LLM responses (testing)
 LLM_MOCK=false
 ```
@@ -136,6 +139,7 @@ LLM_MOCK=false
 
 - If `MASSIVE_API_KEY` is set and non-empty → backend uses Massive REST API for market data
 - If `MASSIVE_API_KEY` is absent or empty → backend uses the built-in market simulator
+- If `LLM_MODEL` is set → backend uses that model string instead of the default `openrouter/openai/gpt-oss-120b`
 - If `LLM_MOCK=true` → backend returns deterministic mock LLM responses (for E2E tests)
 - The backend reads `.env` from the project root (mounted into the container or read via docker `--env-file`)
 
@@ -175,9 +179,17 @@ Both the simulator and the Massive client implement the same abstract interface.
 
 - Endpoint: `GET /api/stream/prices`
 - Long-lived SSE connection; client uses native `EventSource` API
-- Server pushes price updates for all tickers known to the system at a regular cadence (~500ms) — in the single-user model this is equivalent to the user's watchlist
+- Server pushes price updates for all watchlist tickers at a regular cadence (~500ms)
+- The SSE stream only sends an event for a ticker when its price has changed since the last push (avoids sending duplicate data when using the Massive API, which polls less frequently)
 - Each SSE event contains ticker, price, previous price, timestamp, and change direction
 - Client handles reconnection automatically (EventSource has built-in retry)
+
+### Dynamic Ticker Management
+
+When a user adds a new ticker to the watchlist:
+- **Simulator mode**: The simulator begins generating prices for the new ticker immediately, using a default seed price of $100.00 with standard volatility. Any ticker string is accepted — the simulator does not validate against real-world symbols.
+- **Massive API mode**: The poller adds the ticker to its poll set. If the Massive API returns no data for the ticker (invalid symbol), the backend returns an error when adding to the watchlist.
+- When a ticker is removed from all watchlists, the simulator/poller stops tracking it and the price cache evicts it.
 
 ---
 
@@ -225,7 +237,7 @@ All tables include a `user_id` column defaulting to `"default"`. This is hardcod
 - `price` REAL
 - `executed_at` TEXT (ISO timestamp)
 
-**portfolio_snapshots** — Portfolio value over time (for P&L chart). Recorded every 30 seconds by a background task, and immediately after each trade execution.
+**portfolio_snapshots** — Portfolio value over time (for P&L chart). Recorded every 30 seconds by a background task, and immediately after each trade execution. The snapshot task prunes records older than 24 hours to prevent unbounded growth.
 - `id` TEXT PRIMARY KEY (UUID)
 - `user_id` TEXT (default: `"default"`)
 - `total_value` REAL
@@ -253,12 +265,41 @@ All tables include a `user_id` column defaulting to `"default"`. This is hardcod
 |--------|------|-------------|
 | GET | `/api/stream/prices` | SSE stream of live price updates |
 
+Each SSE event is a JSON object:
+```json
+{"ticker": "AAPL", "price": 191.25, "previous_price": 191.10, "timestamp": "2026-04-11T14:30:00Z", "direction": "up"}
+```
+
 ### Portfolio
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/portfolio` | Current positions, cash balance, total value, unrealized P&L |
 | POST | `/api/portfolio/trade` | Execute a trade: `{ticker, quantity, side}` |
 | GET | `/api/portfolio/history` | Portfolio value snapshots over time (for P&L chart) |
+
+**`GET /api/portfolio`** response:
+```json
+{
+  "cash_balance": 7500.00,
+  "total_value": 12350.75,
+  "positions": [
+    {"ticker": "AAPL", "quantity": 10.5, "avg_cost": 190.00, "current_price": 195.50, "unrealized_pnl": 57.75, "pnl_percent": 2.89}
+  ]
+}
+```
+
+**`POST /api/portfolio/trade`** request/response:
+```json
+// Request
+{"ticker": "AAPL", "quantity": 5, "side": "buy"}
+// Response
+{"ticker": "AAPL", "side": "buy", "quantity": 5, "price": 195.50, "total_cost": 977.50, "cash_remaining": 6522.50}
+```
+
+**`GET /api/portfolio/history`** response:
+```json
+{"snapshots": [{"total_value": 10000.00, "recorded_at": "2026-04-11T14:00:00Z"}, ...]}
+```
 
 ### Watchlist
 | Method | Path | Description |
@@ -267,15 +308,35 @@ All tables include a `user_id` column defaulting to `"default"`. This is hardcod
 | POST | `/api/watchlist` | Add a ticker: `{ticker}` |
 | DELETE | `/api/watchlist/{ticker}` | Remove a ticker |
 
+**`GET /api/watchlist`** response:
+```json
+{"watchlist": [{"ticker": "AAPL", "price": 195.50, "previous_price": 195.10, "added_at": "2026-04-11T14:00:00Z"}, ...]}
+```
+
 ### Chat
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/api/chat` | Send a message, receive complete JSON response (message + executed actions) |
 
+**`POST /api/chat`** request/response:
+```json
+// Request
+{"message": "Buy 10 shares of AAPL"}
+// Response
+{
+  "message": "Done! I bought 10 shares of AAPL at $195.50.",
+  "trades": [{"ticker": "AAPL", "side": "buy", "quantity": 10, "price": 195.50}],
+  "watchlist_changes": [],
+  "errors": []
+}
+```
+The `errors` array contains strings describing any failed trade or watchlist operations.
+
 ### System
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/health` | Health check (for Docker/deployment) |
+| POST | `/api/reset` | Reset account to initial state ($10k cash, clear positions/trades/snapshots/chat, restore default watchlist) |
 
 ---
 
@@ -290,13 +351,14 @@ There is an OPENROUTER_API_KEY in the .env file in the project root.
 When the user sends a chat message, the backend:
 
 1. Loads the user's current portfolio context (cash, positions with P&L, watchlist with live prices, total portfolio value)
-2. Loads recent conversation history from the `chat_messages` table
+2. Loads the last 20 messages of conversation history from the `chat_messages` table (capped to avoid exceeding LLM context limits)
 3. Constructs a prompt with a system message, portfolio context, conversation history, and the user's new message
 4. Calls the LLM via LiteLLM → OpenRouter, requesting structured output, using the cerebras-inference skill
-5. Parses the complete structured JSON response
-6. Auto-executes any trades or watchlist changes specified in the response
-7. Stores the message and executed actions in `chat_messages`
-8. Returns the complete JSON response to the frontend (no token-by-token streaming — Cerebras inference is fast enough that a loading indicator is sufficient)
+5. Waits for the complete response (no token-by-token streaming — Cerebras inference returns in 1-3 seconds, fast enough that a loading indicator is sufficient)
+6. Parses the complete structured JSON response
+7. Auto-executes any trades or watchlist changes specified in the response
+8. Stores the message and executed actions in `chat_messages`
+9. Returns the complete JSON response to the frontend as a single payload
 
 ### Structured Output Schema
 
@@ -357,7 +419,7 @@ The frontend is a single-page application with a dense, terminal-inspired layout
 - **Portfolio heatmap** — treemap visualization where each rectangle is a position, sized by portfolio weight, colored by P&L (green = profit, red = loss)
 - **P&L chart** — line chart showing total portfolio value over time, using data from `portfolio_snapshots`
 - **Positions table** — tabular view of all positions: ticker, quantity, avg cost, current price, unrealized P&L, % change
-- **Trade bar** — simple input area: ticker field, quantity field, buy button, sell button. Market orders, instant fill.
+- **Trade bar** — simple input area: ticker field, quantity field (accepts decimals for fractional shares), buy button, sell button. Market orders, instant fill.
 - **AI chat panel** — docked/collapsible sidebar. Message input, scrolling conversation history, loading indicator while waiting for LLM response. Trade executions and watchlist changes shown inline as confirmations.
 - **Header** — portfolio total value (updating live), connection status indicator, cash balance
 
@@ -416,6 +478,10 @@ The `db/` directory in the project root maps to `/app/db` in the container. The 
 **`scripts/start_windows.ps1`** / **`scripts/stop_windows.ps1`**: PowerShell equivalents for Windows.
 
 All scripts should be idempotent — safe to run multiple times.
+
+### docker-compose.yml
+
+The `docker-compose.yml` wraps the `docker run` command into a declarative file, providing the volume mount, port mapping, env-file, and restart policy (`unless-stopped`) in one place. Usage: `docker compose up -d` / `docker compose down`. The start/stop scripts use this under the hood.
 
 ### Optional Cloud Deployment
 

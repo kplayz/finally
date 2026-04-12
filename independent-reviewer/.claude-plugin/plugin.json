@@ -1,0 +1,9 @@
+{
+    "name": "independent-reviewer",
+    "description": "A plugin that provides independent reviews on all changes since last commit.",
+    "version": "1.0.0",
+    "author": {
+        "name": "Ashish",
+        "email": "ashnhash@gmail.com"
+    }
+}

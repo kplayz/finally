@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(codex exec:*)",
+      "Bash(echo \"---EXIT:$?\")",
+      "Bash(sudo apt:*)",
+      "WebSearch",
+      "WebFetch(domain:massive.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:polygon.io)",
+      "WebFetch(domain:www.oreateai.com)",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:analyzingalpha.com)",
+      "WebFetch(domain:polygon.readthedocs.io)",
+      "WebFetch(domain:www.postman.com)"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true
+  }
+}

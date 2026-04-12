@@ -1,39 +1,34 @@
-# FinAlly — AI Trading Workstation
+# FinAlly -- AI Trading Workstation
 
-A visually stunning AI-powered trading workstation that streams live market data, simulates portfolio trading, and integrates an LLM chat assistant that can analyze positions and execute trades via natural language.
+AI-powered trading workstation that streams live market data, lets users trade a simulated portfolio, and integrates an LLM chat assistant that can analyze positions and execute trades via natural language.
 
 Built entirely by coding agents as a capstone project for an agentic AI coding course.
 
 ## Features
 
 - **Live price streaming** via SSE with green/red flash animations
-- **Simulated portfolio** — $10k virtual cash, market orders, instant fills
-- **Portfolio visualizations** — heatmap (treemap), P&L chart, positions table
-- **AI chat assistant** — analyzes holdings, suggests and auto-executes trades
-- **Watchlist management** — track tickers manually or via AI
-- **Dark terminal aesthetic** — Bloomberg-inspired, data-dense layout
+- **Simulated portfolio** -- $10k virtual cash, market orders, fractional shares
+- **Portfolio visualizations** -- heatmap, P&L chart, positions table
+- **AI chat assistant** -- analyzes holdings, suggests and auto-executes trades
+- **Watchlist management** -- track tickers manually or via AI
+- **Dark terminal aesthetic** -- Bloomberg-inspired, data-dense layout
 
 ## Architecture
 
-Single Docker container serving everything on port 8000:
+Single Docker container on port 8000:
 
-- **Frontend**: Next.js (static export) with TypeScript and Tailwind CSS
-- **Backend**: FastAPI (Python/uv) with SSE streaming
-- **Database**: SQLite with lazy initialization
-- **AI**: LiteLLM → OpenRouter (Cerebras inference) with structured outputs
-- **Market data**: Built-in GBM simulator (default) or Massive API (optional)
+- **Frontend**: Next.js static export, TypeScript, Tailwind CSS
+- **Backend**: FastAPI (Python/uv), SSE streaming, SQLite
+- **AI**: LiteLLM via OpenRouter (Cerebras inference), structured outputs
+- **Market data**: Built-in GBM simulator (default) or Massive API (real data)
 
 ## Quick Start
 
 ```bash
-# Clone and configure
 cp .env.example .env
 # Add your OPENROUTER_API_KEY to .env
 
-# Run with Docker
-docker build -t finally .
-docker run -v finally-data:/app/db -p 8000:8000 --env-file .env finally
-
+docker compose up -d
 # Open http://localhost:8000
 ```
 
@@ -42,19 +37,19 @@ docker run -v finally-data:/app/db -p 8000:8000 --env-file .env finally
 | Variable | Required | Description |
 |---|---|---|
 | `OPENROUTER_API_KEY` | Yes | OpenRouter API key for AI chat |
-| `MASSIVE_API_KEY` | No | Massive (Polygon.io) key for real market data; omit to use simulator |
-| `LLM_MOCK` | No | Set `true` for deterministic mock LLM responses (testing) |
+| `MASSIVE_API_KEY` | No | Massive API key for real market data; omit for simulator |
+| `LLM_MOCK` | No | `true` for deterministic mock responses (testing) |
 
 ## Project Structure
 
 ```
 finally/
-├── frontend/    # Next.js static export
-├── backend/     # FastAPI uv project
-├── planning/    # Project documentation and agent contracts
-├── test/        # Playwright E2E tests
-├── db/          # SQLite volume mount (runtime)
-└── scripts/     # Start/stop helpers
+  frontend/    # Next.js static export
+  backend/     # FastAPI uv project
+  planning/    # Design docs and agent contracts
+  db/          # SQLite volume mount (runtime)
+  scripts/     # Docker start/stop helpers
+  test/        # Playwright E2E tests
 ```
 
 ## License
