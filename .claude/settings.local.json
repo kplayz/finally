@@ -12,7 +12,13 @@
       "WebFetch(domain:medium.com)",
       "WebFetch(domain:analyzingalpha.com)",
       "WebFetch(domain:polygon.readthedocs.io)",
-      "WebFetch(domain:www.postman.com)"
+      "WebFetch(domain:www.postman.com)",
+      "WebFetch(domain:leaderboard.hadismac.com)",
+      "Bash(curl:*)",
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(uv sync:*)",
+      "Bash(uv run:*)",
+      "Bash(git add:*)"
     ]
   },
   "sandbox": {
