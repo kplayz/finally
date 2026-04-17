@@ -224,6 +224,26 @@ class TestFetchAndUpdate:
 # ---------------------------------------------------------------------------
 
 
+class TestEmptyTickerSet:
+    @pytest.mark.asyncio
+    async def test_poll_loop_skips_fetch_with_no_tickers(self):
+        """When the ticker set is empty, the poll loop must not call _fetch_and_update."""
+        provider = MassiveProvider(api_key="test-key", tickers=[])
+        fetch_called = False
+
+        async def fake_fetch(client):
+            nonlocal fetch_called
+            fetch_called = True
+
+        provider._fetch_and_update = fake_fetch  # type: ignore[method-assign]
+
+        await provider.start()
+        await asyncio.sleep(0.05)
+        await provider.stop()
+
+        assert fetch_called is False, "_fetch_and_update should not be called with empty tickers"
+
+
 class TestValidateTicker:
     @pytest.mark.asyncio
     @respx.mock
@@ -254,6 +274,24 @@ class TestValidateTicker:
         respx.get(
             f"{BASE_URL}/v2/snapshot/locale/us/markets/stocks/tickers/AAPL"
         ).mock(side_effect=httpx.ConnectError("timeout"))
+        result = await provider.validate_ticker("AAPL")
+        assert result is False
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_403_auth_error_returns_false(self, provider):
+        respx.get(
+            f"{BASE_URL}/v2/snapshot/locale/us/markets/stocks/tickers/AAPL"
+        ).mock(return_value=httpx.Response(403, json={"error": "forbidden"}))
+        result = await provider.validate_ticker("AAPL")
+        assert result is False
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_429_rate_limit_returns_false(self, provider):
+        respx.get(
+            f"{BASE_URL}/v2/snapshot/locale/us/markets/stocks/tickers/AAPL"
+        ).mock(return_value=httpx.Response(429, json={"error": "rate limited"}))
         result = await provider.validate_ticker("AAPL")
         assert result is False
 

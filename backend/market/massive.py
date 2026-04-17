@@ -9,6 +9,7 @@ Base URL: https://api.massive.com
 """
 
 import asyncio
+import threading
 from datetime import datetime, timezone
 
 import httpx
@@ -38,6 +39,7 @@ class MassiveProvider(MarketDataProvider):
     def __init__(self, api_key: str, tickers: list[str]) -> None:
         self._api_key = api_key
         self._tickers: set[str] = {t.upper() for t in tickers}
+        self._lock = threading.Lock()
         self._cache = PriceCache()
         self._task: asyncio.Task | None = None
 
@@ -61,12 +63,14 @@ class MassiveProvider(MarketDataProvider):
 
     def add_ticker(self, ticker: str) -> None:
         """Add *ticker* to the poll set (upper-cased)."""
-        self._tickers.add(ticker.upper())
+        with self._lock:
+            self._tickers.add(ticker.upper())
 
     def remove_ticker(self, ticker: str) -> None:
         """Remove *ticker* from the poll set and evict it from the cache."""
         ticker = ticker.upper()
-        self._tickers.discard(ticker)
+        with self._lock:
+            self._tickers.discard(ticker)
         self._cache.remove(ticker)
 
     def get_price(self, ticker: str) -> PricePoint | None:
@@ -108,7 +112,9 @@ class MassiveProvider(MarketDataProvider):
     async def _poll_loop(self) -> None:
         async with httpx.AsyncClient() as client:
             while True:
-                if self._tickers:
+                with self._lock:
+                    has_tickers = bool(self._tickers)
+                if has_tickers:
                     await self._fetch_and_update(client)
                 await asyncio.sleep(POLL_INTERVAL)
 
@@ -119,7 +125,8 @@ class MassiveProvider(MarketDataProvider):
         limit responses do not crash the poller; the cache retains the
         last known prices until the next successful poll.
         """
-        tickers = list(self._tickers)
+        with self._lock:
+            tickers = list(self._tickers)
         try:
             resp = await client.get(
                 f"{BASE_URL}/v2/snapshot/locale/us/markets/stocks/tickers",

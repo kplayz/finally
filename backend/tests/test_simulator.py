@@ -102,11 +102,15 @@ class TestPricePositivity:
 
 
 class TestApproximateDrift:
-    def test_log_return_mean_near_drift(self):
+    def test_log_return_mean_near_drift(self, monkeypatch):
         """Geometric mean of log-returns over 20 000 ticks should be close to
         (DEFAULT_DRIFT - 0.5 * DEFAULT_VOL²) * DT (the Itô-corrected drift)."""
+        import market.simulator as sim_module
+
+        # Suppress random events so they don't add noise to the drift measurement
+        monkeypatch.setattr(sim_module, "EVENT_PROB", 0.0)
+
         provider = SimulatorProvider(["DRIFTTEST"])
-        # Override initial price to a known value
         with provider._lock:
             provider._prices["DRIFTTEST"] = 100.0
 
@@ -114,18 +118,24 @@ class TestApproximateDrift:
         prev_price = 100.0
         for _ in range(20_000):
             provider._tick()
-            point = provider.get_price("DRIFTTEST")
-            new_price = point.price
+            # Read from internal _prices (unrounded) to avoid rounding bias
+            with provider._lock:
+                new_price = provider._prices["DRIFTTEST"]
             if prev_price > 0 and new_price > 0:
                 log_returns.append(math.log(new_price / prev_price))
             prev_price = new_price
 
         expected_mean = (DEFAULT_DRIFT - 0.5 * DEFAULT_VOL ** 2) * DT
         actual_mean = statistics.mean(log_returns)
-        # Allow ±5× the expected mean as tolerance (high variance per tick)
-        tolerance = abs(expected_mean) * 5 + 1e-9
+        # Tolerance based on standard error of the mean:
+        # SE = vol * sqrt(DT) / sqrt(N) ≈ 2.67e-7 for N=20000
+        # Use 5 standard errors for a robust bound
+        vol = DEFAULT_VOL
+        se = vol * math.sqrt(DT) / math.sqrt(len(log_returns))
+        tolerance = 5 * se
         assert abs(actual_mean - expected_mean) < tolerance, (
-            f"mean log-return {actual_mean:.2e} too far from expected {expected_mean:.2e}"
+            f"mean log-return {actual_mean:.2e} too far from expected {expected_mean:.2e} "
+            f"(tolerance={tolerance:.2e})"
         )
 
 
@@ -135,8 +145,17 @@ class TestApproximateDrift:
 
 
 class TestMarketCorrelation:
-    def test_correlated_moves(self):
-        """Log-returns of two tickers should have positive correlation (~40 %)."""
+    def test_correlated_moves(self, monkeypatch):
+        """Log-returns of two tickers should have positive correlation (~40 %).
+
+        Random events are suppressed because each event produces a jump
+        ~750x larger than a normal GBM tick. Even a few uncorrelated events
+        can dominate the variance and push measured correlation to zero.
+        """
+        import market.simulator as sim_module
+
+        monkeypatch.setattr(sim_module, "EVENT_PROB", 0.0)
+
         provider = SimulatorProvider(["TICKER_A", "TICKER_B"])
         returns_a: list[float] = []
         returns_b: list[float] = []
@@ -165,10 +184,9 @@ class TestMarketCorrelation:
         std_b = statistics.stdev(returns_b[:n])
         corr = cov / (std_a * std_b) if std_a > 0 and std_b > 0 else 0.0
 
-        # GBM with 40 % market factor → Pearson correlation ≈ MARKET_CORRELATION²
-        # (correlation of *log-returns*, not levels).  We just assert it's positive.
-        assert corr > 0, f"Expected positive correlation, got {corr:.3f}"
-        # And not spuriously close to 1 (they're not the same ticker)
+        # GBM with 40 % market factor → expected correlation ≈ 0.16
+        # We assert it's clearly positive and below 1.
+        assert corr > 0.05, f"Expected positive correlation, got {corr:.3f}"
         assert corr < 0.9, f"Correlation suspiciously high: {corr:.3f}"
 
 
@@ -194,6 +212,39 @@ class TestRandomEvents:
         pct_change = abs(new_price - initial_price) / initial_price
         # Minimum jump = 0.10 * 0.5 (EVENT_MAG * uniform lower bound) = 5%
         assert pct_change >= 0.04, f"Expected event jump ≥ 4%, got {pct_change:.2%}"
+
+
+# ---------------------------------------------------------------------------
+# add_ticker / remove_ticker
+# ---------------------------------------------------------------------------
+
+
+class TestRemoveTickerDuringTick:
+    def test_remove_during_tick_is_safe(self):
+        """Removing a ticker while _tick is iterating must not raise."""
+        provider = SimulatorProvider(["AAPL", "MSFT", "TSLA"])
+        # Remove a ticker then immediately tick — the continue guard should skip it
+        provider.remove_ticker("MSFT")
+        provider._tick()  # must not raise
+        assert provider.get_price("MSFT") is None
+        assert provider.get_price("AAPL") is not None
+        assert provider.get_price("TSLA") is not None
+
+
+# ---------------------------------------------------------------------------
+# Price rounding
+# ---------------------------------------------------------------------------
+
+
+class TestPriceRounding:
+    def test_cached_prices_rounded_to_4_decimals(self):
+        """Prices in the cache must be rounded to 4 decimal places."""
+        provider = SimulatorProvider(["ROUNDTEST"])
+        _run_ticks(provider, 50)
+        point = provider.get_price("ROUNDTEST")
+        assert point is not None
+        assert point.price == round(point.price, 4)
+        assert point.previous_price == round(point.previous_price, 4)
 
 
 # ---------------------------------------------------------------------------
