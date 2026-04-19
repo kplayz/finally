@@ -1,0 +1,42 @@
+**/.git
+**/.github
+**/.vscode
+**/.idea
+**/.claude
+**/.claude-plugin
+
+# Python
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.venv
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+
+# Node / Next
+**/node_modules
+**/.next
+**/out
+**/dist
+
+# Runtime data / env
+db/*.db
+db/*.db-wal
+db/*.db-shm
+.env
+.env.*
+!.env.example
+
+# Docs / planning / tests (not needed in runtime image)
+planning/
+test/
+independent-reviewer/
+*.md
+!README.md
+
+# Artifacts
+*.log
+*.tmp
+Thumbs.db
+.DS_Store

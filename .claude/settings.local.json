@@ -18,7 +18,26 @@
       "Bash(python -m pytest tests/ -v)",
       "Bash(uv sync:*)",
       "Bash(uv run:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(sqlite3 \":memory:\")",
+      "Bash(python -c ' *)",
+      "Bash(bash -n scripts/start_mac.sh)",
+      "Bash(bash -n scripts/stop_mac.sh)",
+      "Bash(chmod +x scripts/*.sh)",
+      "Bash(npm --version)",
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(npm test *)",
+      "Bash(npx playwright *)",
+      "Bash(FINALLY_DB_PATH=C:/Users/User/projects/finally/db/e2e.db LLM_MOCK=true OPENROUTER_API_KEY=mock MASSIVE_API_KEY= uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --log-level warning)",
+      "Bash(break)",
+      "Bash(FINALLY_BASE_URL=http://127.0.0.1:8000 npx playwright test --reporter=list)",
+      "Bash(FINALLY_BASE_URL=http://127.0.0.1:8000 npx playwright test sse-resilience --reporter=list)",
+      "Bash(docker --version)",
+      "Bash(docker compose *)",
+      "Bash(docker info *)",
+      "Bash(\"C:/Program Files/Docker/Docker/Docker Desktop.exe\")",
+      "Bash(echo \"launched Docker Desktop, pid $!\")"
     ]
   },
   "sandbox": {

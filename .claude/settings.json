@@ -1,17 +1,11 @@
 {
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "codex exec \"Review changes since last commit amnd write results to a file named planning/REVIEW.md\""
-          }
-        ]
-      }
-    ]
-  },
   "enabledPlugins": {
-    "Independent-Reviewer@ash-tools": true
-  }
+    "frontend-design@claude-plugins-official": true,
+    "context7@claude-plugins-official": true,
+    "playwright@claude-plugins-official": true
+  },
+  "env": {
+    "CLAUDE_CODE_EXPERIMETAL_AGENT_TEAMS" : "1"
+  },
+  "teammateMode": "in-process"
 }

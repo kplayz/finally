@@ -1,0 +1,31 @@
+# E2E compose: brings up the app container in LLM_MOCK mode and runs
+# Playwright against it. Keeps browser deps out of the production image.
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment:
+      LLM_MOCK: "true"
+      MASSIVE_API_KEY: ""
+      OPENROUTER_API_KEY: "mock"
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.47.2-jammy
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      FINALLY_BASE_URL: "http://app:8000"
+    working_dir: /work
+    volumes:
+      - ./:/work
+    command: sh -c "npm install --no-audit --no-fund && npx playwright test"
