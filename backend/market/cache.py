@@ -10,8 +10,8 @@ class PriceCache:
 
     Both SimulatorProvider and MassiveProvider write here; SSE stream
     handlers and API route handlers read from here.  All access is
-    protected by a single re-entrant lock so the cache is safe to use
-    from asyncio tasks and background threads simultaneously.
+    protected by a lock so the cache is safe to use from asyncio tasks
+    and background threads simultaneously.
     """
 
     def __init__(self) -> None:
